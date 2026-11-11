@@ -150,17 +150,208 @@ app.get('/api/products/:id', (req, res) => {
   res.json({ product });
 });
 
+// --------------------------------------------------------------- addresses
+const savedAddressColumns = `
+  recipient_name, phone, address_line1, address_line2, city, state, postal_code, country
+`;
+const getSavedAddress = db.prepare(
+  'SELECT * FROM user_addresses WHERE id = ? AND user_id = ?'
+);
+const listSavedAddresses = db.prepare(
+  'SELECT * FROM user_addresses WHERE user_id = ? ORDER BY is_default DESC, id'
+);
+const countSavedAddresses = db.prepare(
+  'SELECT COUNT(*) AS count FROM user_addresses WHERE user_id = ?'
+);
+const clearDefaultAddress = db.prepare(
+  'UPDATE user_addresses SET is_default = 0 WHERE user_id = ? AND is_default = 1'
+);
+const saveAddressRow = db.prepare(`
+  INSERT INTO user_addresses (user_id, ${savedAddressColumns}, is_default)
+  VALUES (@userId, @recipient_name, @phone, @address_line1, @address_line2,
+          @city, @state, @postal_code, @country, @is_default)
+`);
+const addressFromRow = row => ({
+  id: row.id,
+  recipientName: row.recipient_name,
+  phone: row.phone,
+  addressLine1: row.address_line1,
+  addressLine2: row.address_line2,
+  city: row.city,
+  state: row.state,
+  postalCode: row.postal_code,
+  country: row.country,
+  isDefault: Boolean(row.is_default),
+});
+const serializeAddress = row => addressFromRow(row);
+
+function validateAddress(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Please enter a delivery address.' };
+  }
+  const fields = [
+    ['recipientName', 'Recipient name', 2, 100],
+    ['phone', 'Phone number', 7, 20],
+    ['addressLine1', 'Street address', 5, 200],
+    ['city', 'City', 2, 100],
+    ['state', 'State or province', 2, 100],
+    ['postalCode', 'Postal code', 3, 12],
+    ['country', 'Country', 2, 80],
+  ];
+  const address = {};
+  for (const [field, label, minLength, maxLength] of fields) {
+    const value = typeof input[field] === 'string' ? input[field].trim() : '';
+    if (value.length < minLength || value.length > maxLength) {
+      return { error: `Please enter a valid ${label.toLowerCase()}.` };
+    }
+    address[field] = value;
+  }
+  address.addressLine2 =
+    typeof input.addressLine2 === 'string' ? input.addressLine2.trim() : '';
+  if (address.addressLine2.length > 200) {
+    return { error: 'Address line 2 must be 200 characters or fewer.' };
+  }
+  if (!/^[+0-9][0-9\s()-]{6,19}$/.test(address.phone)) {
+    return { error: 'Please enter a valid phone number.' };
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9 -]{1,10}[A-Za-z0-9]$/.test(address.postalCode)) {
+    return { error: 'Please enter a valid postal code.' };
+  }
+  return { address };
+}
+
+const createSavedAddress = db.transaction((userId, address, makeDefault) => {
+  const shouldBeDefault = makeDefault || countSavedAddresses.get(userId).count === 0;
+  if (shouldBeDefault) clearDefaultAddress.run(userId);
+  const result = saveAddressRow.run({
+    userId,
+    recipient_name: address.recipientName,
+    phone: address.phone,
+    address_line1: address.addressLine1,
+    address_line2: address.addressLine2,
+    city: address.city,
+    state: address.state,
+    postal_code: address.postalCode,
+    country: address.country,
+    is_default: shouldBeDefault ? 1 : 0,
+  });
+  return getSavedAddress.get(Number(result.lastInsertRowid), userId);
+});
+
+app.get('/api/addresses', requireAuth, (req, res) => {
+  res.json({ addresses: listSavedAddresses.all(req.user.id).map(serializeAddress) });
+});
+
+app.post('/api/addresses', requireAuth, (req, res) => {
+  const result = validateAddress(req.body?.address);
+  if (result.error) return fail(res, 400, result.error);
+  const address = createSavedAddress(req.user.id, result.address, req.body?.isDefault === true);
+  res.status(201).json({ address: serializeAddress(address) });
+});
+
+app.put('/api/addresses/:id', requireAuth, (req, res) => {
+  const addressId = Number(req.params.id);
+  if (!Number.isInteger(addressId) || addressId < 1) return fail(res, 400, 'Invalid address.');
+  const current = getSavedAddress.get(addressId, req.user.id);
+  if (!current) return fail(res, 404, 'Address not found.');
+  const result = validateAddress(req.body?.address);
+  if (result.error) return fail(res, 400, result.error);
+
+  const update = db.transaction(() => {
+    if (req.body?.isDefault === true) clearDefaultAddress.run(req.user.id);
+    db.prepare(`
+      UPDATE user_addresses
+      SET recipient_name = @recipient_name, phone = @phone,
+          address_line1 = @address_line1, address_line2 = @address_line2,
+          city = @city, state = @state, postal_code = @postal_code, country = @country
+      WHERE id = @id AND user_id = @user_id
+    `).run({
+      id: addressId,
+      user_id: req.user.id,
+      recipient_name: result.address.recipientName,
+      phone: result.address.phone,
+      address_line1: result.address.addressLine1,
+      address_line2: result.address.addressLine2,
+      city: result.address.city,
+      state: result.address.state,
+      postal_code: result.address.postalCode,
+      country: result.address.country,
+    });
+    if (req.body?.isDefault === true) {
+      db.prepare('UPDATE user_addresses SET is_default = 1 WHERE id = ? AND user_id = ?')
+        .run(addressId, req.user.id);
+    }
+    return getSavedAddress.get(addressId, req.user.id);
+  });
+  res.json({ address: serializeAddress(update()) });
+});
+
+app.patch('/api/addresses/:id/default', requireAuth, (req, res) => {
+  const addressId = Number(req.params.id);
+  if (!Number.isInteger(addressId) || addressId < 1) return fail(res, 400, 'Invalid address.');
+  const setDefault = db.transaction(() => {
+    const address = getSavedAddress.get(addressId, req.user.id);
+    if (!address) return null;
+    clearDefaultAddress.run(req.user.id);
+    db.prepare('UPDATE user_addresses SET is_default = 1 WHERE id = ? AND user_id = ?')
+      .run(addressId, req.user.id);
+    return getSavedAddress.get(addressId, req.user.id);
+  });
+  const address = setDefault();
+  if (!address) return fail(res, 404, 'Address not found.');
+  res.json({ address: serializeAddress(address) });
+});
+
+app.delete('/api/addresses/:id', requireAuth, (req, res) => {
+  const addressId = Number(req.params.id);
+  if (!Number.isInteger(addressId) || addressId < 1) return fail(res, 400, 'Invalid address.');
+  const removeAddress = db.transaction(() => {
+    const address = getSavedAddress.get(addressId, req.user.id);
+    if (!address) return false;
+    db.prepare('DELETE FROM user_addresses WHERE id = ? AND user_id = ?')
+      .run(addressId, req.user.id);
+    if (address.is_default) {
+      const replacement = db.prepare(
+        'SELECT id FROM user_addresses WHERE user_id = ? ORDER BY id LIMIT 1'
+      ).get(req.user.id);
+      if (replacement) {
+        db.prepare('UPDATE user_addresses SET is_default = 1 WHERE id = ?')
+          .run(replacement.id);
+      }
+    }
+    return true;
+  });
+  if (!removeAddress()) return fail(res, 404, 'Address not found.');
+  res.json({ ok: true });
+});
+
 // -------------------------------------------------------------------- orders
 const getProduct = db.prepare('SELECT * FROM products WHERE id = ?');
 const reduceStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?');
-const insertOrder = db.prepare('INSERT INTO orders (user_id, total) VALUES (?, ?)');
+const insertOrder = db.prepare(`
+  INSERT INTO orders (
+    user_id, total, recipient_name, phone, address_line1, address_line2, city, state, postal_code, country, payment_method
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
 const insertItem = db.prepare(
   'INSERT INTO order_items (order_id, product_id, product_name, price, quantity) VALUES (?, ?, ?, ?, ?)'
+);
+const getOrderAddress = db.prepare(
+  'SELECT * FROM user_addresses WHERE id = ? AND user_id = ?'
 );
 
 class OrderError extends Error {}
 
-const createOrder = db.transaction((userId, items) => {
+const createOrder = db.transaction((userId, items, addressId, submittedAddress, paymentMethod) => {
+  let address;
+  if (addressId) {
+    const savedAddress = getOrderAddress.get(addressId, userId);
+    if (!savedAddress) throw new OrderError('That saved address is no longer available.');
+    address = addressFromRow(savedAddress);
+  } else {
+    address = submittedAddress;
+  }
+
   let total = 0;
   const lines = [];
 
@@ -181,7 +372,25 @@ const createOrder = db.transaction((userId, items) => {
     lines.push({ product, quantity });
   }
 
-  const orderId = Number(insertOrder.run(userId, total).lastInsertRowid);
+  if (!addressId && countSavedAddresses.get(userId).count === 0) {
+    createSavedAddress(userId, address, true);
+  }
+
+  const orderId = Number(
+    insertOrder.run(
+      userId,
+      total,
+      address.recipientName,
+      address.phone,
+      address.addressLine1,
+      address.addressLine2,
+      address.city,
+      address.state,
+      address.postalCode,
+      address.country,
+      paymentMethod
+    ).lastInsertRowid
+  );
   for (const { product, quantity } of lines) {
     insertItem.run(orderId, product.id, product.name, product.price, quantity);
   }
@@ -190,6 +399,22 @@ const createOrder = db.transaction((userId, items) => {
 
 app.post('/api/orders', requireAuth, (req, res) => {
   const raw = Array.isArray(req.body?.items) ? req.body.items : [];
+  const paymentMethods = ['UPI', 'Card', 'Net Banking', 'Cash on Delivery'];
+  const paymentMethod = req.body?.paymentMethod;
+  if (!paymentMethods.includes(paymentMethod)) {
+    return fail(res, 400, 'Please select a valid payment method.');
+  }
+
+  let addressId = 0;
+  let address;
+  if (req.body?.addressId !== undefined) {
+    addressId = Number(req.body.addressId);
+    if (!Number.isInteger(addressId) || addressId < 1) return fail(res, 400, 'Invalid address.');
+  } else {
+    const result = validateAddress(req.body?.address);
+    if (result.error) return fail(res, 400, result.error);
+    address = result.address;
+  }
 
   // Merge duplicate lines and validate every entry.
   const merged = new Map();
@@ -206,7 +431,10 @@ app.post('/api/orders', requireAuth, (req, res) => {
   try {
     const orderId = createOrder(
       req.user.id,
-      [...merged].map(([productId, quantity]) => ({ productId, quantity }))
+      [...merged].map(([productId, quantity]) => ({ productId, quantity })),
+      addressId,
+      address,
+      paymentMethod
     );
     res.status(201).json({ order: { id: orderId } });
   } catch (error) {

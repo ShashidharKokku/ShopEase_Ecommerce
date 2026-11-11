@@ -494,18 +494,325 @@ button { cursor: pointer; border: 0; }
 .checkout-card { width: 100%; }
 .summary-row { margin: 12px 0; }
 
-.order-card {
+.secondary-btn {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px 15px;
+  border: 1px solid #d5dfd6;
+  border-radius: 8px;
   background: #fff;
-  border: 1px solid #eee;
-  border-radius: 12px;
-  padding: 20px;
-  margin: 15px 0;
+  color: #205b40;
+  font-weight: 600;
 }
 
-.order-card p {
+.secondary-btn:hover { background: #f1f6f1; }
+.secondary-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.saved-addresses h2 {
+  margin: 0;
+  font: 700 22px Manrope, sans-serif;
+}
+
+.address-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.address-heading p { margin: 6px 0 0; }
+
+.saved-address-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.saved-address {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid #e3e7e2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.saved-address.selected {
+  border-color: #58916e;
+  background: #f5faf5;
+}
+
+.saved-address-select {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.saved-address-select > input {
+  margin: 4px 0 0;
+  accent-color: #205b40;
+}
+
+.saved-address-select > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #657067;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.saved-address-select strong {
+  display: inline-block;
+  margin-right: 8px;
+  color: #20231f;
+  font-size: 15px;
+}
+
+.default-badge {
+  display: inline-block;
+  width: fit-content;
+  border-radius: 20px;
+  padding: 2px 8px;
+  background: #e6f1e9;
+  color: #205b40;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.address-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.address-actions button {
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: transparent;
+  color: #205b40;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.address-actions button:hover { background: #e8f0e7; }
+.address-actions button:disabled { opacity: .5; cursor: not-allowed; }
+
+.address-editor {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #e3e7e2;
+  border-radius: 10px;
+  background: #fafcf9;
+}
+
+.address-editor h3 {
+  margin: 0 0 16px;
+  font: 700 17px Manrope, sans-serif;
+}
+
+.address-editor-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.checkout-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid #e9e9e5;
+}
+
+.payment-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.payment-section legend {
+  margin-bottom: 4px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.payment-section > p { margin: 7px 0 14px; }
+
+.payment-method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.payment-method {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e3e7e2;
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.payment-method.selected {
+  border-color: #58916e;
+  background: #f5faf5;
+}
+
+.payment-method input {
+  margin: 3px 0 0;
+  accent-color: #205b40;
+}
+
+.payment-method span {
+  display: grid;
+  gap: 4px;
+}
+
+.payment-method small {
+  color: #68716a;
+  font-size: 12px;
+}
+
+.address-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.address-fields legend {
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.address-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.address-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 7px;
+  font: inherit;
+}
+
+.address-fields .muted { font-weight: 400; }
+.address-wide { grid-column: 1 / -1; }
+
+.order-card {
+  background: #fff;
+  border: 1px solid #e6e9e5;
+  border-radius: 14px;
+  padding: 22px;
+  margin: 18px 0;
+}
+
+.order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #edf0ec;
+}
+
+.order-header h2 {
+  margin: 0 0 5px;
+  font: 700 18px Manrope, sans-serif;
+}
+
+.order-header time {
   color: #68716a;
   font-size: 14px;
+}
+
+.order-status {
+  padding: 6px 11px;
+  border-radius: 20px;
+  background: #e8f3eb;
+  color: #205b40;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.order-products { padding: 16px 0; }
+.order-products h3, .order-info h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.order-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid #f0f1ef;
+}
+
+.order-item > div {
+  display: grid;
+  gap: 4px;
+}
+
+.order-item span, .order-info p, .order-info address {
+  color: #68716a;
+  font-size: 13px;
   line-height: 1.6;
+}
+
+.order-item > strong { white-space: nowrap; }
+
+.order-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 16px 0;
+  border-top: 1px solid #edf0ec;
+}
+
+.order-info address {
+  display: grid;
+  font-style: normal;
+}
+
+.order-info address strong { color: #20231f; }
+.order-info p { margin: 0; }
+
+.order-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #edf0ec;
+  font-weight: 700;
+}
+
+.order-total strong {
+  color: #205b40;
+  font-size: 20px;
 }
 
 footer {
@@ -580,6 +887,15 @@ footer {
   .cart-product { min-width: 130px; }
   .qty { margin-left: auto; }
   .cart-row > .icon-btn { margin-left: auto; }
+
+  .address-heading { flex-direction: column; }
+  .saved-address { flex-direction: column; }
+  .address-actions { justify-content: flex-start; }
+  .payment-method-grid { grid-template-columns: 1fr; }
+  .order-card { padding: 17px; }
+  .order-info-grid { grid-template-columns: 1fr; gap: 15px; }
+  .address-fields { grid-template-columns: 1fr; }
+  .address-wide { grid-column: auto; }
 }
 
 /* ---- additions ---- */

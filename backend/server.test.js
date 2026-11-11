@@ -102,10 +102,24 @@ test('placing an order reduces stock and shows in history', async () => {
   const token = login.data.token;
 
   const before = (await call('/products/1')).data.product;
+  const address = {
+    recipientName: 'Demo User',
+    phone: '+91 9876543210',
+    addressLine1: '12 Market Street',
+    addressLine2: 'Apartment 4',
+    city: 'Bengaluru',
+    state: 'Karnataka',
+    postalCode: '560001',
+    country: 'India',
+  };
   const order = await call('/orders', {
     method: 'POST',
     token,
-    body: { items: [{ productId: 1, quantity: 2 }, { productId: 1, quantity: 1 }] },
+    body: {
+      items: [{ productId: 1, quantity: 2 }, { productId: 1, quantity: 1 }],
+      address,
+      paymentMethod: 'UPI',
+    },
   });
   assert.equal(order.status, 201);
 
@@ -115,6 +129,92 @@ test('placing an order reduces stock and shows in history', async () => {
   const mine = await call('/orders/my', { token });
   assert.equal(mine.data.orders[0].total, before.price * 3);
   assert.equal(mine.data.orders[0].items[0].quantity, 3);
+  assert.equal(mine.data.orders[0].recipient_name, address.recipientName);
+  assert.equal(mine.data.orders[0].address_line1, address.addressLine1);
+  assert.equal(mine.data.orders[0].address_line2, address.addressLine2);
+  assert.equal(mine.data.orders[0].postal_code, address.postalCode);
+  assert.equal(mine.data.orders[0].payment_method, 'UPI');
+
+  const saved = await call('/addresses', { token });
+  assert.equal(saved.data.addresses.length, 1);
+  assert.equal(saved.data.addresses[0].addressLine1, address.addressLine1);
+  assert.equal(saved.data.addresses[0].isDefault, true);
+});
+
+test('manages saved addresses per account and keeps one default', async () => {
+  const demo = await call('/auth/login', {
+    method: 'POST',
+    body: { email: 'demo@shopease.com', password: 'demo123' },
+  });
+  const demoToken = demo.data.token;
+  const other = await call('/auth/login', {
+    method: 'POST',
+    body: { email: 'tester@example.com', password: 'secret1' },
+  });
+  const otherToken = other.data.token;
+  const baseAddress = {
+    recipientName: 'Tester',
+    phone: '+91 9876543210',
+    addressLine1: '12 Market Street',
+    city: 'Bengaluru',
+    state: 'Karnataka',
+    postalCode: '560001',
+    country: 'India',
+  };
+
+  assert.equal((await call('/addresses')).status, 401);
+  assert.deepEqual((await call('/addresses', { token: otherToken })).data.addresses, []);
+
+  const first = await call('/addresses', {
+    method: 'POST',
+    token: otherToken,
+    body: { address: baseAddress, isDefault: false },
+  });
+  assert.equal(first.status, 201);
+  assert.equal(first.data.address.isDefault, true);
+
+  const second = await call('/addresses', {
+    method: 'POST',
+    token: otherToken,
+    body: { address: { ...baseAddress, addressLine1: '48 River Road' } },
+  });
+  assert.equal(second.status, 201);
+  assert.equal(second.data.address.isDefault, false);
+
+  const foreignUpdate = await call(`/addresses/${first.data.address.id}`, {
+    method: 'PUT',
+    token: demoToken,
+    body: { address: baseAddress },
+  });
+  assert.equal(foreignUpdate.status, 404);
+
+  const selectedDefault = await call(`/addresses/${second.data.address.id}/default`, {
+    method: 'PATCH',
+    token: otherToken,
+  });
+  assert.equal(selectedDefault.data.address.isDefault, true);
+
+  const edited = await call(`/addresses/${second.data.address.id}`, {
+    method: 'PUT',
+    token: otherToken,
+    body: { address: { ...baseAddress, addressLine1: '50 River Road' } },
+  });
+  assert.equal(edited.data.address.addressLine1, '50 River Road');
+  assert.equal(edited.data.address.isDefault, true);
+
+  assert.equal((await call(`/addresses/${second.data.address.id}`, {
+    method: 'DELETE',
+    token: otherToken,
+  })).status, 200);
+  const remaining = await call('/addresses', { token: otherToken });
+  assert.equal(remaining.data.addresses.length, 1);
+  assert.equal(remaining.data.addresses[0].isDefault, true);
+
+  assert.equal((await call(`/addresses/${first.data.address.id}`, {
+    method: 'DELETE',
+    token: otherToken,
+  })).status, 200);
+  assert.deepEqual((await call('/addresses', { token: otherToken })).data.addresses, []);
 });
 
 test('rejects unauthenticated, empty, invalid and oversold orders', async () => {
@@ -130,10 +230,55 @@ test('rejects unauthenticated, empty, invalid and oversold orders', async () => 
   const empty = await call('/orders', { method: 'POST', token, body: { items: [] } });
   assert.equal(empty.status, 400);
 
+  const address = {
+    recipientName: 'Demo User',
+    phone: '+91 9876543210',
+    addressLine1: '12 Market Street',
+    city: 'Bengaluru',
+    state: 'Karnataka',
+    postalCode: '560001',
+    country: 'India',
+  };
+  const missingAddress = await call('/orders', {
+    method: 'POST',
+    token,
+    body: { items: [{ productId: 1, quantity: 1 }], paymentMethod: 'UPI' },
+  });
+  assert.equal(missingAddress.status, 400);
+
+  const missingPayment = await call('/orders', {
+    method: 'POST',
+    token,
+    body: { items: [{ productId: 1, quantity: 1 }], address },
+  });
+  assert.equal(missingPayment.status, 400);
+
+  const invalidPayment = await call('/orders', {
+    method: 'POST',
+    token,
+    body: {
+      items: [{ productId: 1, quantity: 1 }],
+      address,
+      paymentMethod: 'Cryptocurrency',
+    },
+  });
+  assert.equal(invalidPayment.status, 400);
+
+  const invalidAddress = await call('/orders', {
+    method: 'POST',
+    token,
+    body: {
+      items: [{ productId: 1, quantity: 1 }],
+      address: { ...address, postalCode: '!' },
+      paymentMethod: 'Card',
+    },
+  });
+  assert.equal(invalidAddress.status, 400);
+
   const invalid = await call('/orders', {
     method: 'POST',
     token,
-    body: { items: [{ productId: 1, quantity: -2 }] },
+    body: { items: [{ productId: 1, quantity: -2 }], address, paymentMethod: 'Card' },
   });
   assert.equal(invalid.status, 400);
 
@@ -141,7 +286,7 @@ test('rejects unauthenticated, empty, invalid and oversold orders', async () => 
   const oversold = await call('/orders', {
     method: 'POST',
     token,
-    body: { items: [{ productId: 10, quantity: stock + 1 }] },
+    body: { items: [{ productId: 10, quantity: stock + 1 }], address, paymentMethod: 'Cash on Delivery' },
   });
   assert.equal(oversold.status, 409);
   assert.equal((await call('/products/10')).data.product.stock, stock);

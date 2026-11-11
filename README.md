@@ -68,7 +68,7 @@ After building, `npm start` serves the compiled frontend from the backend on por
 - Favorites accessible from the navigation bar. Favorites are saved in the current browser.
 - A browser-saved cart with quantity controls and stock limits.
 - Registration and sign-in using bcrypt password hashes and JWT sessions.
-- Demo checkout, server-calculated order totals, stock checks, and order history.
+- Checkout with account-specific saved delivery addresses and UPI, Card, Net Banking, or Cash on Delivery selection; orders retain the chosen method alongside server-calculated totals and stock checks.
 - Responsive layout and a fallback image if a product photo cannot load.
 
 Ratings and review counts are demo seed data, not reviews submitted by customers. Product photos are loaded from an external image host, so those photos require internet access.
@@ -128,7 +128,12 @@ All API routes are prefixed with `/api`.
 | `POST` | `/auth/register` | Register an account |
 | `POST` | `/auth/login` | Sign in |
 | `GET` | `/auth/me` | Get the signed-in user |
-| `POST` | `/orders` | Place an order (sign-in required) |
+| `GET` | `/addresses` | List the signed-in user’s saved delivery addresses |
+| `POST` | `/addresses` | Save a delivery address |
+| `PUT` | `/addresses/:id` | Edit one of the signed-in user’s addresses |
+| `PATCH` | `/addresses/:id/default` | Set a saved address as the default |
+| `DELETE` | `/addresses/:id` | Delete one of the signed-in user’s addresses |
+| `POST` | `/orders` | Place an order with `items`, saved `addressId`, and `paymentMethod` (sign-in required; an address object is accepted for legacy clients and saved on the user’s first order) |
 | `GET` | `/orders/my` | Get the signed-in user’s orders |
 
 ## Project structure

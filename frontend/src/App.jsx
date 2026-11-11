@@ -681,17 +681,175 @@ function Cart() {
   );
 }
 
+function emptyAddress(name = '') {
+  return {
+    recipientName: name,
+    phone: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: 'India',
+  };
+}
+
+function AddressFields({ address, onChange }) {
+  return (
+    <fieldset className="address-fields">
+      <label>
+        Full name
+        <input name="recipientName" autoComplete="name" required minLength={2} maxLength={100}
+          value={address.recipientName} onChange={onChange} />
+      </label>
+      <label>
+        Phone number
+        <input name="phone" type="tel" autoComplete="tel" required minLength={7} maxLength={20}
+          value={address.phone} onChange={onChange} />
+      </label>
+      <label className="address-wide">
+        Street address
+        <input name="addressLine1" autoComplete="address-line1" required minLength={5} maxLength={200}
+          value={address.addressLine1} onChange={onChange} />
+      </label>
+      <label className="address-wide">
+        Apartment, suite, etc. <span className="muted">(optional)</span>
+        <input name="addressLine2" autoComplete="address-line2" maxLength={200}
+          value={address.addressLine2} onChange={onChange} />
+      </label>
+      <label>
+        City
+        <input name="city" autoComplete="address-level2" required minLength={2} maxLength={100}
+          value={address.city} onChange={onChange} />
+      </label>
+      <label>
+        State / Province
+        <input name="state" autoComplete="address-level1" required minLength={2} maxLength={100}
+          value={address.state} onChange={onChange} />
+      </label>
+      <label>
+        Postal code
+        <input name="postalCode" autoComplete="postal-code" required minLength={3} maxLength={12}
+          value={address.postalCode} onChange={onChange} />
+      </label>
+      <label>
+        Country
+        <input name="country" autoComplete="country-name" required minLength={2} maxLength={80}
+          value={address.country} onChange={onChange} />
+      </label>
+    </fieldset>
+  );
+}
+
 function Checkout() {
   const { cart, user, clearCart } = useStore();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [addressBusy, setAddressBusy] = useState(false);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [addresses, setAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState('');
+  const [addressMode, setAddressMode] = useState(null);
+  const [addressDraft, setAddressDraft] = useState(() => emptyAddress(user?.name));
+  const [paymentMethod, setPaymentMethod] = useState('');
   const total = cart.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
   );
 
-  async function placeOrder() {
+  async function refreshAddresses(preferredId) {
+    const data = await api('/addresses');
+    const nextAddresses = data.addresses;
+    setAddresses(nextAddresses);
+    const selected =
+      nextAddresses.find(item => item.id === Number(preferredId)) ||
+      nextAddresses.find(item => item.isDefault) ||
+      nextAddresses[0];
+    setSelectedAddressId(selected ? String(selected.id) : '');
+    if (nextAddresses.length === 0) setAddressMode('new');
+    return nextAddresses;
+  }
+
+  useEffect(() => {
+    refreshAddresses().catch(err => setError(err.message)).finally(() => setAddressesLoading(false));
+  }, []);
+
+  function updateAddress(event) {
+    const { name, value } = event.target;
+    setAddressDraft(current => ({ ...current, [name]: value }));
+  }
+
+  function addAddress() {
+    setError('');
+    setAddressDraft(emptyAddress(user?.name));
+    setAddressMode('new');
+  }
+
+  function editAddress(address) {
+    setError('');
+    setAddressDraft({
+      recipientName: address.recipientName,
+      phone: address.phone,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
+    });
+    setAddressMode(address.id);
+  }
+
+  async function saveAddress(event) {
+    event.preventDefault();
+    setAddressBusy(true);
+    setError('');
+    try {
+      const path = addressMode === 'new' ? '/addresses' : `/addresses/${addressMode}`;
+      const result = await api(path, {
+        method: addressMode === 'new' ? 'POST' : 'PUT',
+        body: JSON.stringify({ address: addressDraft }),
+      });
+      await refreshAddresses(result.address.id);
+      setAddressMode(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddressBusy(false);
+    }
+  }
+
+  async function makeDefault(addressId) {
+    setAddressBusy(true);
+    setError('');
+    try {
+      await api(`/addresses/${addressId}/default`, { method: 'PATCH' });
+      await refreshAddresses(addressId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddressBusy(false);
+    }
+  }
+
+  async function deleteAddress(addressId) {
+    if (!window.confirm('Delete this saved address?')) return;
+    setAddressBusy(true);
+    setError('');
+    try {
+      await api(`/addresses/${addressId}`, { method: 'DELETE' });
+      const remaining = await refreshAddresses();
+      if (remaining.length === 0) setAddressDraft(emptyAddress(user?.name));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddressBusy(false);
+    }
+  }
+
+  async function placeOrder(event) {
+    event.preventDefault();
     if (!user) {
       navigate('/login', { state: { from: '/checkout' } });
       return;
@@ -708,6 +866,8 @@ function Checkout() {
             productId: item.id,
             quantity: item.quantity,
           })),
+          addressId: Number(selectedAddressId),
+          paymentMethod,
         }),
       });
       clearCart();
@@ -734,31 +894,123 @@ function Checkout() {
       <h1>Checkout</h1>
 
       <div className="checkout-card">
-        <p>Order summary</p>
-        {cart.map(item => (
-          <div className="summary-row" key={item.id}>
-            <span>
-              {item.name} × {item.quantity}
-            </span>
-            <b>{money(item.price * item.quantity)}</b>
+        <section className="saved-addresses" aria-busy={addressesLoading || addressBusy}>
+          <div className="address-heading">
+            <div>
+              <h2>Delivery address</h2>
+              <p className="muted">Choose where you want your order delivered.</p>
+            </div>
+            {addressMode === null && (
+              <button className="secondary-btn" type="button" onClick={addAddress} disabled={addressBusy}>
+                Add new address
+              </button>
+            )}
           </div>
-        ))}
-        <hr />
-        <div className="summary-row">
-          <strong>Total</strong>
-          <strong>{money(total)}</strong>
+
+          {addressesLoading ? (
+            <p className="muted">Loading saved addresses...</p>
+          ) : addresses.length > 0 ? (
+            <div className="saved-address-list">
+              {addresses.map(address => (
+                <article className={`saved-address ${String(address.id) === selectedAddressId ? 'selected' : ''}`}
+                  key={address.id}>
+                  <label className="saved-address-select">
+                    <input type="radio" name="deliveryAddress" value={address.id}
+                      checked={String(address.id) === selectedAddressId}
+                      onChange={() => setSelectedAddressId(String(address.id))} />
+                    <span>
+                      <strong>{address.recipientName}</strong>
+                      {address.isDefault && <small className="default-badge">Default</small>}
+                      <span>{address.addressLine1}{address.addressLine2 ? `, ${address.addressLine2}` : ''}</span>
+                      <span>{address.city}, {address.state} {address.postalCode}, {address.country}</span>
+                      <span>{address.phone}</span>
+                    </span>
+                  </label>
+                  <div className="address-actions">
+                    {!address.isDefault && (
+                      <button type="button" onClick={() => makeDefault(address.id)} disabled={addressBusy}>
+                        Set as default
+                      </button>
+                    )}
+                    <button type="button" onClick={() => editAddress(address)} disabled={addressBusy}>
+                      Edit
+                    </button>
+                    <button type="button" onClick={() => deleteAddress(address.id)} disabled={addressBusy}>
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            !addressesLoading && <p className="muted">Add a delivery address to continue.</p>
+          )}
+
+          {addressMode !== null && (
+            <form className="address-editor" onSubmit={saveAddress}>
+              <h3>{addressMode === 'new' ? 'Add a new address' : 'Edit address'}</h3>
+              <AddressFields address={addressDraft} onChange={updateAddress} />
+              <div className="address-editor-actions">
+                <button className="primary-btn" type="submit" disabled={addressBusy}>
+                  {addressBusy ? 'Saving...' : 'Save address'}
+                </button>
+                {addresses.length > 0 && (
+                  <button className="secondary-btn" type="button" onClick={() => setAddressMode(null)}
+                    disabled={addressBusy}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+        </section>
+
+        {error && <p className="error" role="alert">{error}</p>}
+
+        <form className="checkout-summary" onSubmit={placeOrder}>
+        <fieldset className="payment-section">
+          <legend>Payment method</legend>
+          <p className="muted">Choose how you would like to pay. This demo does not process payments.</p>
+          <div className="payment-method-grid">
+            {['UPI', 'Card', 'Net Banking', 'Cash on Delivery'].map(method => (
+              <label className={`payment-method ${paymentMethod === method ? 'selected' : ''}`} key={method}>
+                <input type="radio" name="paymentMethod" value={method} required
+                  checked={paymentMethod === method}
+                  onChange={() => setPaymentMethod(method)} />
+                <span>
+                  <strong>{method}</strong>
+                  <small>
+                    {method === 'Cash on Delivery' ? 'Pay when your order arrives' : `Pay securely with ${method}`}
+                  </small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div>
+          <p>Order summary</p>
+          {cart.map(item => (
+            <div className="summary-row" key={item.id}>
+              <span>
+                {item.name} × {item.quantity}
+              </span>
+              <b>{money(item.price * item.quantity)}</b>
+            </div>
+          ))}
+          <hr />
+          <div className="summary-row">
+            <strong>Total</strong>
+            <strong>{money(total)}</strong>
+          </div>
         </div>
         <p className="muted">
-          Demo checkout: no payment will be collected.
+          Demo checkout: payment details are not collected or processed.
         </p>
-        {error && <p className="error">{error}</p>}
-        <button
-          className="primary-btn full"
-          onClick={placeOrder}
-          disabled={busy}
-        >
+        <button className="primary-btn full" type="submit"
+          disabled={busy || addressBusy || addressesLoading || !selectedAddressId}>
           {busy ? 'Placing order...' : 'Place order'}
         </button>
+        </form>
       </div>
     </section>
   );
@@ -785,17 +1037,55 @@ function Orders() {
 
       {orders.map(order => (
         <article className="order-card" key={order.id}>
-          <div className="summary-row">
-            <b>Order #{order.id}</b>
-            <span>{formatDate(order.created_at)}</span>
+          <header className="order-header">
+            <div>
+              <h2>Order #{order.id}</h2>
+              <time dateTime={`${String(order.created_at).replace(' ', 'T')}Z`}>
+                {formatDate(order.created_at)}
+              </time>
+            </div>
+            <span className="order-status">{order.status}</span>
+          </header>
+
+          <section className="order-products" aria-label="Products in this order">
+            <h3>Products</h3>
+            {order.items.map(item => (
+              <div className="order-item" key={item.id}>
+                <div>
+                  <strong>{item.product_name}</strong>
+                  <span>
+                    Quantity: {item.quantity} × {money(item.price)} each
+                  </span>
+                </div>
+                <strong>{money(item.price * item.quantity)}</strong>
+              </div>
+            ))}
+          </section>
+
+          <div className="order-info-grid">
+            <section className="order-info">
+              <h3>Delivery address</h3>
+              {order.address_line1 ? (
+                <address>
+                  <strong>{order.recipient_name}</strong>
+                  <span>{order.address_line1}</span>
+                  {order.address_line2 && <span>{order.address_line2}</span>}
+                  <span>{order.city}, {order.state} {order.postal_code}</span>
+                  <span>{order.country}</span>
+                  <span>{order.phone}</span>
+                </address>
+              ) : (
+                <p className="muted">Address not available.</p>
+              )}
+            </section>
+            <section className="order-info">
+              <h3>Payment method</h3>
+              <p>{order.payment_method || 'Not recorded'}</p>
+            </section>
           </div>
-          <p>
-            {order.items
-              .map(item => `${item.product_name} × ${item.quantity}`)
-              .join(', ')}
-          </p>
-          <div className="summary-row">
-            <span>{order.status}</span>
+
+          <div className="order-total">
+            <span>Total amount</span>
             <strong>{money(order.total)}</strong>
           </div>
         </article>

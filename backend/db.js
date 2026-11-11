@@ -42,8 +42,34 @@ db.exec(`
     user_id INTEGER NOT NULL REFERENCES users(id),
     total REAL NOT NULL,
     status TEXT NOT NULL DEFAULT 'Placed',
+    recipient_name TEXT,
+    phone TEXT,
+    address_line1 TEXT,
+    address_line2 TEXT,
+    city TEXT,
+    state TEXT,
+    postal_code TEXT,
+    country TEXT,
+    payment_method TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS user_addresses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipient_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    address_line1 TEXT NOT NULL,
+    address_line2 TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL,
+    state TEXT NOT NULL,
+    postal_code TEXT NOT NULL,
+    country TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0, 1)),
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS one_default_address_per_user
+    ON user_addresses(user_id) WHERE is_default = 1;
 
   CREATE TABLE IF NOT EXISTS order_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +79,42 @@ db.exec(`
     price REAL NOT NULL,
     quantity INTEGER NOT NULL CHECK(quantity > 0)
   );
+`);
+
+const orderColumns = new Set(db.pragma('table_info(orders)').map(column => column.name));
+for (const column of [
+  'recipient_name',
+  'phone',
+  'address_line1',
+  'address_line2',
+  'city',
+  'state',
+  'postal_code',
+  'country',
+  'payment_method',
+]) {
+  if (!orderColumns.has(column)) {
+    db.exec(`ALTER TABLE orders ADD COLUMN ${column} TEXT`);
+  }
+}
+
+db.exec(`
+  INSERT INTO user_addresses (
+    user_id, recipient_name, phone, address_line1, address_line2,
+    city, state, postal_code, country, is_default
+  )
+  SELECT o.user_id, o.recipient_name, o.phone, o.address_line1,
+         COALESCE(o.address_line2, ''), o.city, o.state, o.postal_code, o.country, 1
+  FROM orders o
+  WHERE o.address_line1 IS NOT NULL
+    AND o.id = (
+      SELECT MAX(previous.id)
+      FROM orders previous
+      WHERE previous.user_id = o.user_id AND previous.address_line1 IS NOT NULL
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM user_addresses saved WHERE saved.user_id = o.user_id
+    )
 `);
 
 const productColumns = new Set(db.pragma('table_info(products)').map(column => column.name));
