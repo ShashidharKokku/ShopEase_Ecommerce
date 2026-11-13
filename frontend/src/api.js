@@ -1,4 +1,7 @@
 const TOKEN_KEY = 'shopease_token';
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || ''
+).replace(/\/$/, '');
 
 export function getToken() {
   try {
@@ -13,7 +16,7 @@ export function setToken(token) {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
   } catch {
-    /* storage unavailable - ignore */
+    // Storage unavailable
   }
 }
 
@@ -22,7 +25,7 @@ export async function api(path, options = {}) {
   let response;
 
   try {
-    response = await fetch(`/api${path}`, {
+    response = await fetch(`${API_BASE_URL}/api${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
